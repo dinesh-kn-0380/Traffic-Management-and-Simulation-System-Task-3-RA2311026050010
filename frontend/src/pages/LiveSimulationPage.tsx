@@ -12,9 +12,13 @@ import {
   ChevronRight,
   Sliders,
   Sparkles,
+  Network,
+  ShieldCheck,
+  CheckCircle,
+  HelpCircle,
 } from 'lucide-react';
 import { IntersectionCanvas } from '../components/IntersectionCanvas';
-import { SimulationState, Scenario } from '../types';
+import { SimulationState, Scenario, DecisionRecord } from '../types';
 import {
   fetchSimulationState,
   startSimulation,
@@ -23,6 +27,7 @@ import {
   resetSimulation,
   setSimulationController,
   setSimulationSpeed,
+  fetchDecisionHistory,
 } from '../services/api';
 
 interface LiveSimulationPageProps {
@@ -36,6 +41,7 @@ export const LiveSimulationPage: React.FC<LiveSimulationPageProps> = ({ scenario
   const [controllerType, setControllerType] = useState<string>('baseline');
   const [selectedScenario, setSelectedScenario] = useState<string>('balanced');
   const [isStepping, setIsStepping] = useState<boolean>(false);
+  const [decisionLog, setDecisionLog] = useState<DecisionRecord[]>([]);
 
   // Poll state or connect WebSocket
   useEffect(() => {
@@ -47,6 +53,10 @@ export const LiveSimulationPage: React.FC<LiveSimulationPageProps> = ({ scenario
         setSimState(state);
         setIsRunning(!!state.is_running);
         if (state.controller_type) setControllerType(state.controller_type);
+
+        // Fetch decision log periodically
+        const hist = await fetchDecisionHistory(12);
+        setDecisionLog(hist.history || []);
       } catch (err) {
         console.error('Failed to fetch sim state', err);
       }
@@ -54,7 +64,7 @@ export const LiveSimulationPage: React.FC<LiveSimulationPageProps> = ({ scenario
 
     update();
     // Fast polling for smooth vehicle movement
-    intervalId = setInterval(update, 120);
+    intervalId = setInterval(update, 200);
 
     return () => {
       if (intervalId) clearInterval(intervalId);
@@ -314,6 +324,141 @@ export const LiveSimulationPage: React.FC<LiveSimulationPageProps> = ({ scenario
                 {simState ? simState.cumulative_reward : 0.0}
               </span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Task 3: Live MDP Decision Inspector & Transition Tracker */}
+      <div className="bg-slate-900/70 border border-white/10 rounded-2xl p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Network className="text-blue-400" size={20} />
+              Live MDP Decision Inspector &amp; Step-by-Step Transition Log
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              Observes the active MDP state observation s &isin; S, agent policy evaluation Q(s, a), immediate reward R(s, a, s'), and safety interlocks in real time.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-300 bg-slate-950 px-3 py-1.5 rounded-lg border border-white/5">
+            <span>MDP State:</span>
+            <span className="text-indigo-400 font-bold">
+              {(simState as any)?.discrete_state !== undefined ? `State ${(simState as any).discrete_state} / 287` : 'Initialized'}
+            </span>
+          </div>
+        </div>
+
+        {/* Live State Breakdown & Active Action Q-Values */}
+        {(simState as any)?.latest_decision && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-xl bg-slate-950/80 border border-white/5 space-y-2 text-xs">
+              <span className="text-[10px] uppercase font-bold text-slate-500">Current Observation (s &isin; S)</span>
+              <div className="font-semibold text-white">
+                {(simState as any).latest_decision.decoded_state?.readable?.phase || 'North-South Active'}
+              </div>
+              <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-400 pt-1">
+                <div>NS: <span className="text-blue-400">{(simState as any).latest_decision.decoded_state?.readable?.ns_queue}</span></div>
+                <div>EW: <span className="text-amber-400">{(simState as any).latest_decision.decoded_state?.readable?.ew_queue}</span></div>
+                <div>Green: <span className="text-emerald-400">{(simState as any).latest_decision.decoded_state?.readable?.green_time}</span></div>
+                <div>Urgency: <span className="text-rose-400">{(simState as any).latest_decision.decoded_state?.readable?.wait_urgency}</span></div>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-950/80 border border-white/5 space-y-2 text-xs">
+              <span className="text-[10px] uppercase font-bold text-slate-500">Q-Values &amp; Action Selection</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300">Q(s, KEEP): <strong className="font-mono text-blue-400">{(simState as any).latest_decision.q_values?.keep?.toFixed(2)}</strong></span>
+                <span className="text-slate-300">Q(s, SWITCH): <strong className="font-mono text-amber-400">{(simState as any).latest_decision.q_values?.switch?.toFixed(2)}</strong></span>
+              </div>
+              <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                <span className="text-slate-400">Selected Action:</span>
+                <span className={`px-2.5 py-1 rounded text-xs font-bold ${(simState as any).latest_decision.action === 1 ? 'bg-amber-500/20 text-amber-300' : 'bg-blue-500/20 text-blue-300'}`}>
+                  {(simState as any).latest_decision.action_name}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-950/80 border border-white/5 space-y-2 text-xs">
+              <span className="text-[10px] uppercase font-bold text-slate-500">Immediate Reward &amp; Safety</span>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Step Reward R:</span>
+                <span className={`font-mono font-bold ${(simState as any).latest_decision.reward >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {(simState as any).latest_decision.reward?.toFixed(2)}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-400 pt-1">
+                {(simState as any).latest_decision.safety_override ? (
+                  <span className="text-amber-400 font-medium flex items-center gap-1">
+                    <ShieldCheck size={12} /> {(simState as any).latest_decision.safety_override}
+                  </span>
+                ) : (
+                  <span className="text-emerald-400 flex items-center gap-1">
+                    <CheckCircle size={12} /> Safety clearance verified; unconstrained RL action executed.
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Live Step-by-Step Sequential Decision Log Table */}
+        <div className="space-y-2">
+          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+            Recent Sequential Decision History Log
+          </span>
+          <div className="overflow-x-auto rounded-xl border border-white/10 max-h-60 overflow-y-auto">
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-950 text-slate-400 font-mono uppercase text-[10px] sticky top-0 border-b border-white/10">
+                <tr>
+                  <th className="py-2.5 px-3">#</th>
+                  <th className="py-2.5 px-3">Sim Time</th>
+                  <th className="py-2.5 px-3">Observed State</th>
+                  <th className="py-2.5 px-3">Selected Action</th>
+                  <th className="py-2.5 px-3">Policy Justification &amp; Reasoning</th>
+                  <th className="py-2.5 px-3 text-right">Reward</th>
+                  <th className="py-2.5 px-3 text-center">Safety Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {decisionLog.length > 0 ? (
+                  decisionLog.slice().reverse().map((rec) => (
+                    <tr key={rec.decision_id} className="hover:bg-white/5 transition-colors">
+                      <td className="py-2 px-3 font-mono text-slate-500">{rec.decision_id}</td>
+                      <td className="py-2 px-3 font-mono text-white">{rec.sim_time}s</td>
+                      <td className="py-2 px-3 font-mono text-indigo-400">s={rec.discrete_state}</td>
+                      <td className="py-2 px-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${rec.action === 1 ? 'bg-amber-500/20 text-amber-300' : 'bg-blue-500/20 text-blue-300'}`}>
+                          {rec.action_name}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 text-slate-300 max-w-md truncate" title={rec.reason}>
+                        {rec.reason}
+                      </td>
+                      <td className={`py-2 px-3 font-mono text-right font-semibold ${rec.reward >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {rec.reward > 0 ? `+${rec.reward.toFixed(2)}` : rec.reward.toFixed(2)}
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        {rec.safety_override ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                            Override
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            Clear
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="py-6 text-center text-slate-500">
+                      Step the simulation or click 'Start' to begin logging real-time MDP decisions.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

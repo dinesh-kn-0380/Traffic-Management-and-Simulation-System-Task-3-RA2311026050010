@@ -40,3 +40,21 @@ class SimulationResetRequest(BaseModel):
 class SimulationStepRequest(BaseModel):
     action: int = Field(default=0, ge=0, le=1, description="0=KEEP, 1=SWITCH")
     controller_type: str = Field(default="manual", description="'manual', 'baseline', 'q_learning', 'dqn'")
+
+class BellmanCalculateRequest(BaseModel):
+    q_current: float = Field(default=5.0, description="Current Q(s,a) value")
+    alpha: float = Field(default=0.1, gt=0.0, le=1.0, description="Learning rate alpha")
+    reward: float = Field(default=2.0, description="Immediate reward r")
+    gamma: float = Field(default=0.9, ge=0.0, le=1.0, description="Discount factor gamma")
+    next_max_q: float = Field(default=8.0, description="Maximum next-state Q-value max_a' Q(s',a')")
+
+class RewardCalculateRequest(BaseModel):
+    total_queue: float = Field(default=10.0, ge=0.0, description="Total queued vehicles across all approaches")
+    incremental_wait: float = Field(default=15.0, ge=0.0, description="Incremental waiting time accumulated in step (s)")
+    switch_triggered: bool = Field(default=False, description="Whether signal phase switch was triggered")
+    departures: int = Field(default=2, ge=0, description="Number of vehicles departing through intersection")
+    queue_weight: Optional[float] = Field(default=None, description="Custom weight w_q (defaults to env setting)")
+    waiting_weight: Optional[float] = Field(default=None, description="Custom weight w_w (defaults to env setting)")
+    switch_weight: Optional[float] = Field(default=None, description="Custom weight w_s (defaults to env setting)")
+    throughput_weight: Optional[float] = Field(default=None, description="Custom weight w_th (defaults to env setting)")
+

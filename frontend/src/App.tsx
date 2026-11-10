@@ -4,6 +4,9 @@ import { OverviewPage } from './pages/OverviewPage';
 import { LiveSimulationPage } from './pages/LiveSimulationPage';
 import { TrainingPage } from './pages/TrainingPage';
 import { AlgorithmLabPage } from './pages/AlgorithmLabPage';
+import { MdpExplorerPage } from './pages/MdpExplorerPage';
+import { BellmanSimulatorPage } from './pages/BellmanSimulatorPage';
+import { PolicyValuePage } from './pages/PolicyValuePage';
 import { ComparisonPage } from './pages/ComparisonPage';
 import { ExperimentsPage } from './pages/ExperimentsPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -59,6 +62,15 @@ export function App() {
         )}
         {activeTab === 'laboratory' && (
           <AlgorithmLabPage />
+        )}
+        {activeTab === 'mdp' && (
+          <MdpExplorerPage />
+        )}
+        {activeTab === 'bellman' && (
+          <BellmanSimulatorPage />
+        )}
+        {activeTab === 'policy-value' && (
+          <PolicyValuePage />
         )}
         {activeTab === 'comparison' && (
           <ComparisonPage scenarios={scenarios} />

@@ -8,6 +8,9 @@ import {
   BookOpen,
   LayoutDashboard,
   Zap,
+  Network,
+  Calculator,
+  Compass,
 } from 'lucide-react';
 
 export type NavTab =
@@ -15,6 +18,9 @@ export type NavTab =
   | 'simulation'
   | 'training'
   | 'laboratory'
+  | 'mdp'
+  | 'bellman'
+  | 'policy-value'
   | 'comparison'
   | 'experiments'
   | 'settings';
@@ -31,6 +37,9 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, isTraini
     { id: 'simulation', label: 'Live Simulation', icon: <Activity size={18} /> },
     { id: 'training', label: 'Agent Training', icon: <Cpu size={18} /> },
     { id: 'laboratory', label: 'Algorithm Lab', icon: <BookOpen size={18} /> },
+    { id: 'mdp', label: 'MDP Explorer', icon: <Network size={18} /> },
+    { id: 'bellman', label: 'Bellman Simulator', icon: <Calculator size={18} /> },
+    { id: 'policy-value', label: 'Policy & Value', icon: <Compass size={18} /> },
     { id: 'comparison', label: 'Comparison', icon: <BarChart3 size={18} /> },
     { id: 'experiments', label: 'Experiments', icon: <History size={18} /> },
     { id: 'settings', label: 'Settings', icon: <Sliders size={18} /> },

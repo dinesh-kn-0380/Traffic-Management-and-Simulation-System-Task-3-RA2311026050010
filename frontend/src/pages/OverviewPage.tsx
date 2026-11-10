@@ -62,6 +62,20 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onNavigate, experime
               <BarChart3 size={18} />
               Benchmark Comparison
             </button>
+            <button
+              onClick={() => onNavigate('mdp')}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-200 font-semibold text-sm border border-indigo-500/40 transition-all hover:scale-[1.02]"
+            >
+              <Layers size={18} />
+              MDP Explorer
+            </button>
+            <button
+              onClick={() => onNavigate('bellman')}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-200 font-semibold text-sm border border-emerald-500/40 transition-all hover:scale-[1.02]"
+            >
+              <ShieldCheck size={18} />
+              Bellman Simulator
+            </button>
           </div>
         </div>
       </div>

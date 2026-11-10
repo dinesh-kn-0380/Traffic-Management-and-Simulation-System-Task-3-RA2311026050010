@@ -18,9 +18,12 @@ from app.schemas.schemas import (
     SimulationConfigUpdate,
     SimulationResetRequest,
     SimulationStepRequest,
+    BellmanCalculateRequest,
+    RewardCalculateRequest,
 )
 from app.simulation.scenarios import SCENARIOS
 from app.simulation.simulation_manager import LiveSimulationManager
+from app.simulation.mdp import TrafficMDP
 from app.training.trainer import TrainingManager
 from app.training.evaluation import EvaluationEngine
 from app.simulation.environment import TrafficEnvironment
@@ -412,6 +415,258 @@ def set_simulation_controller(controller_type: str = Query(...)):
 def set_simulation_speed(speed: float = Query(...)):
     sim_mgr.set_speed(speed)
     return {"status": "speed_set", "speed": speed}
+
+
+# -------------------------------------------------------------
+# TASK 3: Formal MDP & Bellman Analysis Endpoints
+# -------------------------------------------------------------
+def _get_active_q_agent() -> QLearningAgent:
+    """Helper to retrieve trained Q-agent or load latest checkpoint."""
+    if training_mgr.agent and isinstance(training_mgr.agent, QLearningAgent):
+        return training_mgr.agent
+    if sim_mgr.q_agent:
+        return sim_mgr.q_agent
+    q_path = os.path.join(MODELS_DIR, "q_learning_latest.json")
+    agent = QLearningAgent()
+    if os.path.exists(q_path):
+        try:
+            agent.load(q_path)
+        except Exception:
+            pass
+    return agent
+
+
+@app.get("/api/mdp/definition")
+def get_mdp_definition():
+    """Returns the complete formal MDP 5-tuple M = (S, A, P, R, gamma) specification."""
+    return TrafficMDP.get_definition()
+
+
+@app.get("/api/mdp/state")
+def get_mdp_state():
+    """
+    Returns current environment state encoded in both:
+    1. Discrete 288-state space index with decomposed features.
+    2. Continuous 10-dimensional normalized observation vector for DQN.
+    """
+    env = sim_mgr.env
+    disc_state = env.get_discrete_state()
+    cont_state = env.get_continuous_state()
+    decoded = TrafficMDP.decode_state(disc_state)
+
+    return {
+        "discrete_state_index": disc_state,
+        "decoded": decoded,
+        "continuous_state_vector": [round(float(x), 4) for x in cont_state],
+        "feature_labels": [
+            "N_queue/15", "S_queue/15", "E_queue/15", "W_queue/15",
+            "N_wait/60", "S_wait/60", "E_wait/60", "W_wait/60",
+            "active_phase_id", "elapsed_green/60"
+        ],
+        "queues": env.get_queues(),
+        "total_queue": env.get_total_queue(),
+        "aggregate_waits": env.get_aggregate_waiting_times(),
+        "sim_time": round(env.sim_time, 1),
+        "phase_elapsed": round(env.signal_controller.phase_elapsed_time, 1),
+        "is_transitioning": env.signal_controller.is_transitioning,
+    }
+
+
+@app.get("/api/mdp/actions")
+def get_mdp_actions():
+    """Returns available MDP actions, current clearance safety state, and feasibility."""
+    env = sim_mgr.env
+    elapsed = env.signal_controller.phase_elapsed_time
+    is_trans = env.signal_controller.is_transitioning
+
+    can_switch = (not is_trans) and (elapsed >= env.signal_controller.min_green)
+    force_switch = (not is_trans) and (elapsed >= env.signal_controller.max_green)
+
+    return {
+        "actions": [
+            {
+                "id": 0,
+                "name": "KEEP",
+                "description": "Maintain active corridor green signal",
+                "is_feasible": not force_switch,
+                "cost_penalty": 0.0,
+            },
+            {
+                "id": 1,
+                "name": "SWITCH",
+                "description": "Request transition to opposing corridor",
+                "is_feasible": can_switch,
+                "switch_penalty": env.switch_weight,
+            }
+        ],
+        "safety_status": {
+            "is_transitioning": is_trans,
+            "phase_elapsed": round(elapsed, 1),
+            "min_green": env.signal_controller.min_green,
+            "max_green": env.signal_controller.max_green,
+            "min_green_satisfied": elapsed >= env.signal_controller.min_green,
+            "max_green_exceeded": force_switch,
+            "active_phase": int(env.signal_controller.current_phase),
+            "active_corridor": "North-South" if env.signal_controller.current_green_phase_id == 0 else "East-West",
+        }
+    }
+
+
+@app.get("/api/mdp/policy")
+def get_mdp_policy(state: Optional[int] = Query(default=None), epsilon: float = Query(default=0.0)):
+    """
+    Returns policy distribution pi(a|s) and Q-values for a specific state or current simulation state.
+    Demonstrates greedy policy argmax_a Q(s,a) and epsilon-greedy exploration.
+    """
+    agent = _get_active_q_agent()
+    env = sim_mgr.env
+    target_state = state if state is not None else env.get_discrete_state()
+    target_state = max(0, min(TrafficMDP.TOTAL_STATES - 1, target_state))
+
+    q_keep = float(agent.q_table[target_state, 0])
+    q_switch = float(agent.q_table[target_state, 1])
+
+    # Argmax greedy
+    best_action = 1 if q_switch > q_keep else 0
+    greedy_diff = abs(q_keep - q_switch)
+
+    # Epsilon-greedy probabilities
+    eps = max(0.0, min(1.0, epsilon))
+    prob_best = (1.0 - eps) + (eps / 2.0)
+    prob_other = eps / 2.0
+    action_probs = {
+        0: prob_best if best_action == 0 else prob_other,
+        1: prob_best if best_action == 1 else prob_other,
+    }
+
+    decoded = TrafficMDP.decode_state(target_state)
+
+    reason = (
+        f"Greedy Policy \u03c0(s) = argmax_a Q(s,a) selects {'SWITCH' if best_action == 1 else 'KEEP'} "
+        f"with value {max(q_keep, q_switch):.3f} vs {min(q_keep, q_switch):.3f} (margin: {greedy_diff:.3f}). "
+        f"Based on: {decoded['readable']['phase']}, {decoded['readable']['ns_queue']} NS, "
+        f"{decoded['readable']['ew_queue']} EW, {decoded['readable']['green_time']} maturity, "
+        f"{decoded['readable']['wait_urgency']}."
+    )
+
+    return {
+        "state_index": target_state,
+        "decoded_state": decoded,
+        "q_values": {
+            "keep": round(q_keep, 4),
+            "switch": round(q_switch, 4),
+        },
+        "state_value_v": round(max(q_keep, q_switch), 4),
+        "greedy_action": best_action,
+        "greedy_action_name": "SWITCH" if best_action == 1 else "KEEP",
+        "epsilon": eps,
+        "action_probabilities": {
+            "keep": round(action_probs[0], 4),
+            "switch": round(action_probs[1], 4),
+        },
+        "explanation": reason,
+        "agent_trained_steps": agent.training_steps,
+    }
+
+
+@app.get("/api/mdp/value")
+def get_mdp_values(phase: Optional[int] = Query(default=None), limit: int = Query(default=60)):
+    """
+    Returns action values Q(s,a) and derived state value function V(s) = max_a Q(s,a)
+    across states in the MDP state space.
+    """
+    agent = _get_active_q_agent()
+    results = []
+
+    for s_idx in range(TrafficMDP.TOTAL_STATES):
+        decoded = TrafficMDP.decode_state(s_idx)
+        if phase is not None and decoded["components"]["phase"] != phase:
+            continue
+
+        q0 = float(agent.q_table[s_idx, 0])
+        q1 = float(agent.q_table[s_idx, 1])
+        v_s = max(q0, q1)
+        best_a = 0 if q0 >= q1 else 1
+
+        results.append({
+            "state_index": s_idx,
+            "v_value": round(v_s, 4),
+            "q_keep": round(q0, 4),
+            "q_switch": round(q1, 4),
+            "optimal_action": best_a,
+            "optimal_action_name": "SWITCH" if best_a == 1 else "KEEP",
+            "components": decoded["components"],
+            "readable": decoded["readable"],
+        })
+
+    # Sort by absolute magnitude of state value
+    results.sort(key=lambda x: abs(x["v_value"]), reverse=True)
+    return {
+        "total_states": TrafficMDP.TOTAL_STATES,
+        "filtered_count": len(results),
+        "states": results[:limit],
+    }
+
+
+@app.post("/api/mdp/bellman/calculate")
+def calculate_bellman(req: BellmanCalculateRequest):
+    """
+    Interactive Bellman Equation Simulator.
+    Computes TD Target, TD Error, and updated Q-value with complete step-by-step arithmetic.
+    """
+    result = TrafficMDP.calculate_bellman_update(
+        q_current=req.q_current,
+        alpha=req.alpha,
+        reward=req.reward,
+        gamma=req.gamma,
+        next_max_q=req.next_max_q,
+    )
+    return result
+
+
+@app.post("/api/mdp/reward/calculate")
+def calculate_reward(req: RewardCalculateRequest):
+    """
+    Interactive Reward Function Calculator.
+    Uses actual backend weights and exact formulation:
+    R = -[w_q*(Q/10) + w_w*(dW/10) + w_s*I(switch)] + w_th*D
+    """
+    env = sim_mgr.env
+    qw = req.queue_weight if req.queue_weight is not None else env.queue_weight
+    ww = req.waiting_weight if req.waiting_weight is not None else env.waiting_weight
+    sw = req.switch_weight if req.switch_weight is not None else env.switch_weight
+    tw = req.throughput_weight if req.throughput_weight is not None else env.throughput_weight
+
+    result = TrafficMDP.calculate_reward(
+        total_queue=req.total_queue,
+        incremental_wait=req.incremental_wait,
+        switch_triggered=req.switch_triggered,
+        departures=req.departures,
+        queue_weight=qw,
+        waiting_weight=ww,
+        switch_weight=sw,
+        throughput_weight=tw,
+    )
+    return result
+
+
+@app.get("/api/mdp/transitions")
+def get_mdp_transitions(limit: int = Query(default=30)):
+    """
+    Empirical state transition probabilities P(s' | s, a) observed during simulation.
+    Demonstrates state transition dynamics without inventing fake numbers.
+    """
+    return sim_mgr.get_transition_summary(limit=limit)
+
+
+@app.get("/api/mdp/decision-history")
+def get_decision_history(limit: int = Query(default=30)):
+    """
+    Sequential decision-making history log.
+    Includes state observation, action choice, immediate reward, Q-values, and justification.
+    """
+    return {"history": sim_mgr.get_decision_history(limit=limit)}
+
 
 
 # -------------------------------------------------------------

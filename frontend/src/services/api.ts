@@ -8,6 +8,15 @@ import {
   EvaluationComparison,
   QTableSummary,
   AppConfig,
+  MdpDefinition,
+  MdpState,
+  MdpActions,
+  MdpPolicy,
+  MdpStateValueItem,
+  BellmanResult,
+  RewardResult,
+  DecisionRecord,
+  TransitionSummary,
 } from '../types';
 
 const BASE_URL = '';
@@ -173,3 +182,81 @@ export async function setSimulationSpeed(speed: number): Promise<any> {
   });
   return res.json();
 }
+
+// -------------------------------------------------------------
+// Task 3: MDP & Bellman Service Endpoints
+// -------------------------------------------------------------
+export async function fetchMdpDefinition(): Promise<MdpDefinition> {
+  const res = await fetch(`${BASE_URL}/api/mdp/definition`);
+  return res.json();
+}
+
+export async function fetchMdpState(): Promise<MdpState> {
+  const res = await fetch(`${BASE_URL}/api/mdp/state`);
+  return res.json();
+}
+
+export async function fetchMdpActions(): Promise<MdpActions> {
+  const res = await fetch(`${BASE_URL}/api/mdp/actions`);
+  return res.json();
+}
+
+export async function fetchMdpPolicy(state?: number, epsilon: number = 0.0): Promise<MdpPolicy> {
+  const url = state !== undefined
+    ? `${BASE_URL}/api/mdp/policy?state=${state}&epsilon=${epsilon}`
+    : `${BASE_URL}/api/mdp/policy?epsilon=${epsilon}`;
+  const res = await fetch(url);
+  return res.json();
+}
+
+export async function fetchMdpValues(phase?: number, limit: number = 100): Promise<{ total_states: number; filtered_count: number; states: MdpStateValueItem[] }> {
+  const url = phase !== undefined
+    ? `${BASE_URL}/api/mdp/value?phase=${phase}&limit=${limit}`
+    : `${BASE_URL}/api/mdp/value?limit=${limit}`;
+  const res = await fetch(url);
+  return res.json();
+}
+
+export async function calculateBellman(params: {
+  q_current: number;
+  alpha: number;
+  reward: number;
+  gamma: number;
+  next_max_q: number;
+}): Promise<BellmanResult> {
+  const res = await fetch(`${BASE_URL}/api/mdp/bellman/calculate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function calculateReward(params: {
+  total_queue: number;
+  incremental_wait: number;
+  switch_triggered: boolean;
+  departures: number;
+  queue_weight?: number;
+  waiting_weight?: number;
+  switch_weight?: number;
+  throughput_weight?: number;
+}): Promise<RewardResult> {
+  const res = await fetch(`${BASE_URL}/api/mdp/reward/calculate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+export async function fetchMdpTransitions(limit: number = 30): Promise<TransitionSummary> {
+  const res = await fetch(`${BASE_URL}/api/mdp/transitions?limit=${limit}`);
+  return res.json();
+}
+
+export async function fetchDecisionHistory(limit: number = 50): Promise<{ history: DecisionRecord[] }> {
+  const res = await fetch(`${BASE_URL}/api/mdp/decision-history?limit=${limit}`);
+  return res.json();
+}
+

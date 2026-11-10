@@ -180,3 +180,264 @@ export interface AppConfig {
     departure_length: number;
   };
 }
+
+// -------------------------------------------------------------
+// Task 3: MDP & Bellman Interfaces
+// -------------------------------------------------------------
+export interface MdpDefinition {
+  title: string;
+  tuple: string;
+  agent: {
+    name: string;
+    role: string;
+    objective: string;
+    constraints: string;
+  };
+  environment: {
+    name: string;
+    approaches: Array<{
+      id: string;
+      name: string;
+      lanes: number;
+      length_m: number;
+      corridor: string;
+    }>;
+    physics: string;
+    time_step_dt: number;
+  };
+  state_space: {
+    tabular_discrete: {
+      cardinality: number;
+      formula: string;
+      encoding_equation: string;
+      dimensions: Array<{
+        name: string;
+        symbol: string;
+        cardinality: number;
+        bins: Array<any>;
+      }>;
+    };
+    deep_continuous: {
+      dimensionality: number;
+      description: string;
+      vector: string[];
+    };
+  };
+  action_space: {
+    cardinality: number;
+    actions: Array<{
+      action_id: number;
+      name: string;
+      symbol: string;
+      description: string;
+      switch_penalty_applied: boolean;
+    }>;
+    safety_controller_overrides: string[];
+  };
+  transition_probability: {
+    symbol: string;
+    description: string;
+    markov_property: string;
+  };
+  reward_function: {
+    equation: string;
+    default_weights: Record<string, number>;
+    components: Array<{
+      name: string;
+      term: string;
+      purpose: string;
+    }>;
+  };
+  returns: {
+    symbol: string;
+    equation: string;
+    discount_factor: {
+      symbol: string;
+      default: number;
+      range: string;
+      interpretation: string;
+    };
+  };
+  episodes: {
+    definition: string;
+    termination_condition: string;
+    metrics_tracked: string[];
+  };
+  goals: string[];
+}
+
+export interface MdpState {
+  discrete_state_index: number;
+  decoded: {
+    state_index: number;
+    components: {
+      phase: number;
+      ns_q_bin: number;
+      ew_q_bin: number;
+      green_time_bin: number;
+      wait_urgency_bin: number;
+    };
+    readable: {
+      phase: string;
+      active_corridor: string;
+      opposing_corridor: string;
+      ns_queue: string;
+      ew_queue: string;
+      green_time: string;
+      wait_urgency: string;
+    };
+  };
+  continuous_state_vector: number[];
+  feature_labels: string[];
+  queues: Record<string, number>;
+  total_queue: number;
+  aggregate_waits: Record<string, number>;
+  sim_time: number;
+  phase_elapsed: number;
+  is_transitioning: boolean;
+}
+
+export interface MdpActions {
+  actions: Array<{
+    id: number;
+    name: string;
+    description: string;
+    is_feasible: boolean;
+    cost_penalty?: number;
+    switch_penalty?: number;
+  }>;
+  safety_status: {
+    is_transitioning: boolean;
+    phase_elapsed: number;
+    min_green: number;
+    max_green: number;
+    min_green_satisfied: boolean;
+    max_green_exceeded: boolean;
+    active_phase: number;
+    active_corridor: string;
+  };
+}
+
+export interface MdpPolicy {
+  state_index: number;
+  decoded_state: any;
+  q_values: {
+    keep: number;
+    switch: number;
+  };
+  state_value_v: number;
+  greedy_action: number;
+  greedy_action_name: string;
+  epsilon: number;
+  action_probabilities: {
+    keep: number;
+    switch: number;
+  };
+  explanation: string;
+  agent_trained_steps: number;
+}
+
+export interface MdpStateValueItem {
+  state_index: number;
+  v_value: number;
+  q_keep: number;
+  q_switch: number;
+  optimal_action: number;
+  optimal_action_name: string;
+  components: {
+    phase: number;
+    ns_q_bin: number;
+    ew_q_bin: number;
+    green_time_bin: number;
+    wait_urgency_bin: number;
+  };
+  readable: {
+    phase: string;
+    active_corridor: string;
+    opposing_corridor: string;
+    ns_queue: string;
+    ew_queue: string;
+    green_time: string;
+    wait_urgency: string;
+  };
+}
+
+export interface BellmanResult {
+  q_current: number;
+  alpha: number;
+  reward: number;
+  gamma: number;
+  next_max_q: number;
+  discounted_future: number;
+  td_target: number;
+  td_error: number;
+  adjustment: number;
+  updated_q: number;
+  steps: string[];
+  mathematical_notation: string;
+}
+
+export interface RewardResult {
+  total_reward: number;
+  breakdown: {
+    queue_penalty: number;
+    waiting_penalty: number;
+    switch_penalty: number;
+    throughput_bonus: number;
+    total_cost: number;
+  };
+  inputs: {
+    total_queue: number;
+    incremental_wait: number;
+    switch_triggered: boolean;
+    departures: number;
+  };
+  weights: {
+    queue_weight: number;
+    waiting_weight: number;
+    switch_weight: number;
+    throughput_weight: number;
+  };
+  equation: string;
+}
+
+export interface DecisionRecord {
+  decision_id: number;
+  sim_time: number;
+  discrete_state: number;
+  decoded_state: any;
+  continuous_state: number[];
+  action: number;
+  action_name: string;
+  q_values: {
+    keep: number;
+    switch: number;
+  };
+  reward: number;
+  next_discrete_state: number;
+  next_decoded_state: any;
+  reason: string;
+  safety_override: string | null;
+  departures: number;
+  total_queue: number;
+  active_corridor: string;
+  current_phase: number;
+}
+
+export interface TransitionSummary {
+  total_unique_state_actions: number;
+  sample_transitions: Array<{
+    state: number;
+    action: number;
+    action_name: string;
+    decoded_state: any;
+    total_samples: number;
+    next_state_distribution: Array<{
+      next_state: number;
+      count: number;
+      probability: number;
+      decoded: any;
+    }>;
+  }>;
+}
+
